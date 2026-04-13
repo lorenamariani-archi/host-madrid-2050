@@ -233,6 +233,31 @@ summary {
   margin-bottom: 14px;
 }
 
+.source-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.source-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(35, 49, 58, 0.05);
+  border: 1px solid rgba(35, 49, 58, 0.08);
+}
+
+.source-item strong {
+  font-size: 0.94rem;
+}
+
+.source-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
 .checkbox-field {
   grid-template-columns: auto 1fr;
   align-items: center;
