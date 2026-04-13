@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HOST Madrid 2050</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="" />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">HOST Madrid 2050</p>
+          <h1>Adaptive reuse analysis for districts, buildings, and future public programs.</h1>
+          <p class="hero-text">
+            This interface sits on top of your FastAPI backend so you can explore demo cases,
+            test official Madrid data, and present the proposal logic in a more visual way.
+          </p>
+          <div class="hero-actions">
+            <button id="load-demo-example" class="button button-primary">Load Demo Example</button>
+            <button id="load-real-example" class="button button-secondary">Load Real Example</button>
+            <a class="docs-link" href="/docs" target="_blank" rel="noreferrer">Open API Docs</a>
+          </div>
+        </div>
+        <div class="hero-panel">
+          <p class="panel-label">Suggested flow</p>
+          <ol class="flow-list">
+            <li>Start with the demo proposal to explain the scoring logic.</li>
+            <li>Switch to real data and load a Madrid district profile.</li>
+            <li>Add a Catastro address to generate a fuller proposal.</li>
+          </ol>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="control-panel">
+          <section class="panel-card">
+            <p class="panel-label">Data mode</p>
+            <div class="mode-switch" role="tablist" aria-label="Data mode">
+              <button id="mode-demo" class="mode-pill active" type="button">Demo Data</button>
+              <button id="mode-real" class="mode-pill" type="button">Official Data</button>
+            </div>
+            <p class="panel-note">
+              Demo data works offline and is ideal for explaining the method. Official data uses
+              Madrid Open Data, INE, and Catastro through your backend.
+            </p>
+            <p class="panel-note">
+              Demo mode keeps 3 sample districts. Official mode includes all 21 Madrid districts.
+            </p>
+          </section>
+
+          <section class="panel-card" id="demo-controls">
+            <p class="panel-label">Demo inputs</p>
+            <label class="field">
+              <span>District</span>
+              <select id="demo-district">
+                <option value="Centro">Centro</option>
+                <option value="Arganzuela">Arganzuela</option>
+                <option value="Chamberi">Chamberi</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Building</span>
+              <select id="demo-building">
+                <option value="FactoryA">FactoryA</option>
+                <option value="WarehouseB">WarehouseB</option>
+                <option value="IndustrialBlockC">IndustrialBlockC</option>
+              </select>
+            </label>
+            <div class="button-stack">
+              <button id="demo-load-button" class="button button-secondary" type="button">Load</button>
+              <button id="demo-proposal-button" class="button button-primary" type="button">Generate Demo Proposal</button>
+            </div>
+          </section>
+
+          <section class="panel-card hidden" id="real-controls">
+            <p class="panel-label">Official-data inputs</p>
+            <label class="field">
+              <span>District name</span>
+              <select id="real-district"></select>
+            </label>
+            <label class="field">
+              <span>Street type</span>
+              <input id="real-street-type" type="text" value="CL" placeholder="CL" />
+            </label>
+            <label class="field">
+              <span>Street name</span>
+              <input id="real-street-name" type="text" value="ALCALA" placeholder="ALCALA" />
+            </label>
+            <label class="field">
+              <span>Street number</span>
+              <input id="real-street-number" type="text" value="45" placeholder="45" />
+            </label>
+            <label class="checkbox-field">
+              <input id="real-refresh" type="checkbox" />
+              <span>Refresh official data</span>
+            </label>
+            <div class="button-stack">
+              <button id="real-load-button" class="button button-secondary" type="button">Load</button>
+              <button id="real-proposal-button" class="button button-primary" type="button">Generate Real Proposal</button>
+            </div>
+          </section>
+
+          <section class="panel-card status-card">
+            <p class="panel-label">Status</p>
+            <p id="status-text">Choose a mode and load a case to begin.</p>
+          </section>
+        </aside>
+
+        <section class="results-panel">
+          <section class="section-card intro-card">
+            <div>
+              <p class="panel-label">What you are seeing</p>
+              <h2>HOST turns district and building data into a reuse proposal.</h2>
+            </div>
+            <p>
+              The interface highlights the four core indices, the best program categories, and the
+              climate adaptation package so the logic is easier to explain than with raw JSON alone.
+            </p>
+          </section>
+
+          <section id="summary-grid" class="summary-grid"></section>
+
+          <section class="content-grid">
+            <article class="section-card">
+              <p class="panel-label">District</p>
+              <div id="district-content" class="placeholder">
+                District information will appear here.
+              </div>
+            </article>
+
+            <article class="section-card">
+              <p class="panel-label">Building</p>
+              <div id="building-content" class="placeholder">
+                Building information will appear here.
+              </div>
+            </article>
+          </section>
+
+          <section class="section-card">
+            <p class="panel-label">Site Map</p>
+            <div id="preview-content" class="placeholder">
+              A focused 2D site map will appear here after a real building lookup.
+            </div>
+          </section>
+
+          <section class="content-grid outcome-grid">
+            <article class="section-card">
+              <p class="panel-label">Recommended Program</p>
+              <div id="program-content" class="placeholder">
+                Program categories and spaces will appear here.
+              </div>
+            </article>
+
+            <article class="section-card">
+              <p class="panel-label">Climate Package</p>
+              <div id="climate-content" class="placeholder">
+                Climate adaptation strategies will appear here.
+              </div>
+            </article>
+          </section>
+
+          <section class="section-card">
+            <p class="panel-label">People and Program Fit</p>
+            <div id="people-program-content" class="placeholder">
+              Profile-specific program matches will appear here after you generate a proposal.
+            </div>
+          </section>
+
+          <section class="section-card">
+            <p class="panel-label">Narrative</p>
+            <div id="narrative-content" class="placeholder">
+              The architectural narrative will appear here.
+            </div>
+          </section>
+
+          <section class="section-card">
+            <p class="panel-label">Raw response</p>
+            <details class="raw-response" open>
+              <summary>Show JSON</summary>
+              <pre id="raw-json">{}</pre>
+            </details>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""></script>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
