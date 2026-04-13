@@ -1,5 +1,4 @@
 const state = {
-  mode: "demo",
   viewerMap: null,
   viewerEngine: null,
 };
@@ -29,10 +28,6 @@ const fallbackMadridDistricts = [
 ];
 
 const elements = {
-  modeDemo: document.getElementById("mode-demo"),
-  modeReal: document.getElementById("mode-real"),
-  demoControls: document.getElementById("demo-controls"),
-  realControls: document.getElementById("real-controls"),
   statusText: document.getElementById("status-text"),
   summaryGrid: document.getElementById("summary-grid"),
   districtContent: document.getElementById("district-content"),
@@ -43,8 +38,6 @@ const elements = {
   narrativeContent: document.getElementById("narrative-content"),
   previewContent: document.getElementById("preview-content"),
   rawJson: document.getElementById("raw-json"),
-  demoDistrict: document.getElementById("demo-district"),
-  demoBuilding: document.getElementById("demo-building"),
   realDistrict: document.getElementById("real-district"),
   realStreetType: document.getElementById("real-street-type"),
   realStreetName: document.getElementById("real-street-name"),
@@ -259,16 +252,6 @@ function populateRealDistricts(districts) {
   elements.realDistrict.innerHTML = districts
     .map((district) => `<option value="${district}">${district}</option>`)
     .join("");
-}
-
-function setMode(mode) {
-  state.mode = mode;
-  const isDemo = mode === "demo";
-  elements.modeDemo.classList.toggle("active", isDemo);
-  elements.modeReal.classList.toggle("active", !isDemo);
-  elements.demoControls.classList.toggle("hidden", !isDemo);
-  elements.realControls.classList.toggle("hidden", isDemo);
-  setStatus(isDemo ? "Demo mode is active." : "Official-data mode is active.");
 }
 
 function setStatus(message) {
@@ -1344,79 +1327,6 @@ function getRealQuery() {
   });
 }
 
-async function loadDemoDistrict() {
-  const district = elements.demoDistrict.value;
-  setStatus(`Loading demo district ${district}...`);
-  const payload = await fetchJson(`/district/${encodeURIComponent(district)}`);
-  clearSections();
-  renderDemoDistrict(payload);
-  renderJson(payload);
-  setStatus(`Demo district ${district} loaded.`);
-}
-
-async function loadDemoBuilding() {
-  const building = elements.demoBuilding.value;
-  setStatus(`Loading demo building ${building}...`);
-  const payload = await fetchJson(`/building/${encodeURIComponent(building)}`);
-  clearSections();
-  renderDemoBuilding(payload);
-  renderJson(payload);
-  setStatus(`Demo building ${building} loaded.`);
-}
-
-async function loadDemoData() {
-  const district = elements.demoDistrict.value;
-  const building = elements.demoBuilding.value;
-  setStatus(`Loading demo district and building data for ${district} and ${building}...`);
-  const [districtPayload, buildingPayload] = await Promise.all([
-    fetchJson(`/district/${encodeURIComponent(district)}`),
-    fetchJson(`/building/${encodeURIComponent(building)}`),
-  ]);
-  clearSections();
-  renderDemoLoadSummary(districtPayload, buildingPayload);
-  renderDistrictBlock(
-    districtPayload.raw_data.name,
-    [
-      { label: "Children share", value: `${Math.round(districtPayload.raw_data.children_share * 100)}%` },
-      { label: "Young adults share", value: `${Math.round(districtPayload.raw_data.young_adults_share * 100)}%` },
-      { label: "Adults share", value: `${Math.round(districtPayload.raw_data.adults_share * 100)}%` },
-      { label: "Seniors share", value: `${Math.round(districtPayload.raw_data.seniors_share * 100)}%` },
-    ],
-    districtPayload.raw_data.main_profiles,
-  );
-  renderBuildingBlock(
-    buildingPayload.raw_data.name,
-    [
-      { label: "Plot area", value: `${formatNumber(buildingPayload.raw_data.plot_area)} m²` },
-      { label: "Structure flexibility", value: buildingPayload.raw_data.structure_flexibility },
-      { label: "Outdoor space", value: buildingPayload.raw_data.outdoor_space ? "Yes" : "No" },
-      { label: "Roof usable", value: buildingPayload.raw_data.roof_usable ? "Yes" : "No" },
-    ],
-  );
-  renderPreProposalState(true);
-  void safeRenderLocationPreview(null);
-  renderJson({
-    district: districtPayload,
-    building: buildingPayload,
-  });
-  setStatus(`Demo district and building data for ${district} and ${building} loaded.`);
-}
-
-async function loadDemoProposal() {
-  const district = elements.demoDistrict.value;
-  const building = elements.demoBuilding.value;
-  setStatus(`Generating demo proposal for ${district} and ${building}...`);
-  const [payload, districtPayload, buildingPayload] = await Promise.all([
-    fetchJson(`/proposal/${encodeURIComponent(district)}/${encodeURIComponent(building)}`),
-    fetchJson(`/district/${encodeURIComponent(district)}`),
-    fetchJson(`/building/${encodeURIComponent(building)}`),
-  ]);
-  clearSections();
-  renderProposal(payload, districtPayload.raw_data, buildingPayload.raw_data, [], null);
-  renderJson(payload);
-  setStatus(`Demo proposal for ${district} and ${building} is ready.`);
-}
-
 async function loadRealDistrict() {
   const district = elements.realDistrict.value.trim();
   const refresh = elements.realRefresh.checked ? "?refresh=true" : "";
@@ -1470,7 +1380,7 @@ async function loadRealData() {
       [{ label: "Status", value: "Address lookup could not be completed." }],
       ["The district loaded correctly, but the building lookup failed. Check the address fields and try again."],
     );
-  void safeRenderLocationPreview(null);
+    void safeRenderLocationPreview(null);
   }
 
   renderJson({
@@ -1518,15 +1428,7 @@ async function runSafe(action) {
   }
 }
 
-function loadDemoExample() {
-  setMode("demo");
-  elements.demoDistrict.value = "Centro";
-  elements.demoBuilding.value = "FactoryA";
-  runSafe(loadDemoData);
-}
-
 function loadRealExample() {
-  setMode("real");
   elements.realDistrict.value = "Centro";
   elements.realStreetType.value = "CL";
   elements.realStreetName.value = "ALCALA";
@@ -1535,19 +1437,13 @@ function loadRealExample() {
   runSafe(loadRealData);
 }
 
-document.getElementById("load-demo-example").addEventListener("click", loadDemoExample);
-document.getElementById("load-real-example").addEventListener("click", loadRealExample);
-document.getElementById("demo-load-button").addEventListener("click", () => runSafe(loadDemoData));
-document.getElementById("demo-proposal-button").addEventListener("click", () => runSafe(loadDemoProposal));
 document.getElementById("real-load-button").addEventListener("click", () => runSafe(loadRealData));
 document.getElementById("real-proposal-button").addEventListener("click", () => runSafe(loadRealProposal));
-elements.modeDemo.addEventListener("click", () => setMode("demo"));
-elements.modeReal.addEventListener("click", () => setMode("real"));
 
 async function initApp() {
-  setMode("demo");
+  setStatus("Loading the official example...");
   await loadDistrictOptions();
-  loadDemoExample();
+  loadRealExample();
 }
 
 void initApp();

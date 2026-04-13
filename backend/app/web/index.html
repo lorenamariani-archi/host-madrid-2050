@@ -18,21 +18,19 @@
           <p class="eyebrow">HOST Madrid 2050</p>
           <h1>Adaptive reuse analysis for districts, buildings, and future public programs.</h1>
           <p class="hero-text">
-            This interface sits on top of your FastAPI backend so you can explore demo cases,
-            test official Madrid data, and present the proposal logic in a more visual way.
+            This interface sits on top of your FastAPI backend so you can test official Madrid data
+            and present the proposal logic in a more visual way.
           </p>
           <div class="hero-actions">
-            <button id="load-demo-example" class="button button-primary">Load Demo Example</button>
-            <button id="load-real-example" class="button button-secondary">Load Real Example</button>
             <a class="docs-link" href="/docs" target="_blank" rel="noreferrer">Open API Docs</a>
           </div>
         </div>
         <div class="hero-panel">
           <p class="panel-label">Suggested flow</p>
           <ol class="flow-list">
-            <li>Start with the demo proposal to explain the scoring logic.</li>
-            <li>Switch to real data and load a Madrid district profile.</li>
-            <li>Add a Catastro address to generate a fuller proposal.</li>
+            <li>Start from the auto-loaded official example.</li>
+            <li>Change the district or address and click Load.</li>
+            <li>Click Generate Real Proposal to build the full reuse scenario.</li>
           </ol>
         </div>
       </header>
@@ -40,45 +38,17 @@
       <main class="layout">
         <aside class="control-panel">
           <section class="panel-card">
-            <p class="panel-label">Data mode</p>
-            <div class="mode-switch" role="tablist" aria-label="Data mode">
-              <button id="mode-demo" class="mode-pill active" type="button">Demo Data</button>
-              <button id="mode-real" class="mode-pill" type="button">Official Data</button>
-            </div>
+            <p class="panel-label">Official Data</p>
             <p class="panel-note">
-              Demo data works offline and is ideal for explaining the method. Official data uses
-              Madrid Open Data, INE, and Catastro through your backend.
+              This public version focuses only on official data sources through your backend:
+              Madrid Open Data, INE, and Catastro.
             </p>
             <p class="panel-note">
-              Demo mode keeps 3 sample districts. Official mode includes all 21 Madrid districts.
+              An example is loaded automatically when the page opens, so you can go straight into the official-data workflow.
             </p>
           </section>
 
-          <section class="panel-card" id="demo-controls">
-            <p class="panel-label">Demo inputs</p>
-            <label class="field">
-              <span>District</span>
-              <select id="demo-district">
-                <option value="Centro">Centro</option>
-                <option value="Arganzuela">Arganzuela</option>
-                <option value="Chamberi">Chamberi</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Building</span>
-              <select id="demo-building">
-                <option value="FactoryA">FactoryA</option>
-                <option value="WarehouseB">WarehouseB</option>
-                <option value="IndustrialBlockC">IndustrialBlockC</option>
-              </select>
-            </label>
-            <div class="button-stack">
-              <button id="demo-load-button" class="button button-secondary" type="button">Load</button>
-              <button id="demo-proposal-button" class="button button-primary" type="button">Generate Demo Proposal</button>
-            </div>
-          </section>
-
-          <section class="panel-card hidden" id="real-controls">
+          <section class="panel-card" id="real-controls">
             <p class="panel-label">Official-data inputs</p>
             <label class="field">
               <span>District name</span>
@@ -108,7 +78,7 @@
 
           <section class="panel-card status-card">
             <p class="panel-label">Status</p>
-            <p id="status-text">Choose a mode and load a case to begin.</p>
+            <p id="status-text">Loading the official example...</p>
           </section>
         </aside>
 
