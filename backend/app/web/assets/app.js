@@ -1319,14 +1319,20 @@ function renderError(message) {
   elements.rawJson.textContent = JSON.stringify({ error: message }, null, 2);
 }
 
-function getRealQuery() {
-  return new URLSearchParams({
-    street_type: elements.realStreetType.value.trim() || "CL",
-    street_name: elements.realStreetName.value.trim(),
-    street_number: elements.realStreetNumber.value.trim(),
-    municipality: "MADRID",
-    province: "MADRID",
-  });
+function encodeQueryValue(value) {
+  return encodeURIComponent(value ?? "");
+}
+
+function getRealQueryString() {
+  const params = [
+    ["street_type", elements.realStreetType.value.trim() || "CL"],
+    ["street_name", elements.realStreetName.value.trim()],
+    ["street_number", elements.realStreetNumber.value.trim()],
+    ["municipality", "MADRID"],
+    ["province", "MADRID"],
+  ];
+
+  return params.map(([key, value]) => `${encodeURIComponent(key)}=${encodeQueryValue(value)}`).join("&");
 }
 
 async function loadRealDistrict() {
@@ -1341,9 +1347,9 @@ async function loadRealDistrict() {
 }
 
 async function loadRealBuilding() {
-  const query = getRealQuery();
+  const query = getRealQueryString();
   setStatus("Looking up the official building data...");
-  const payload = await fetchJson(`/real/building/by-address?${query.toString()}`);
+  const payload = await fetchJson(`/real/building/by-address?${query}`);
   clearSections();
   renderRealBuilding(payload);
   renderJson(payload);
@@ -1353,13 +1359,13 @@ async function loadRealBuilding() {
 async function loadRealData() {
   const district = elements.realDistrict.value.trim();
   const districtRefresh = elements.realRefresh.checked ? "?refresh=true" : "";
-  const buildingQuery = getRealQuery();
+  const buildingQuery = getRealQueryString();
 
   setStatus(`Loading official district and building data for ${district}...`);
 
   const [districtResult, buildingResult] = await Promise.allSettled([
     fetchJson(`/real/district/${encodeURIComponent(district)}${districtRefresh}`),
-    fetchJson(`/real/building/by-address?${buildingQuery.toString()}`),
+    fetchJson(`/real/building/by-address?${buildingQuery}`),
   ]);
 
   if (districtResult.status !== "fulfilled") {
@@ -1401,12 +1407,12 @@ async function loadRealData() {
 
 async function loadRealProposal() {
   const district = elements.realDistrict.value.trim();
-  const query = getRealQuery();
+  let query = getRealQueryString();
   if (elements.realRefresh.checked) {
-    query.set("refresh", "true");
+    query = `${query}&refresh=true`;
   }
   setStatus(`Generating official-data proposal for ${district}...`);
-  const payload = await fetchJson(`/real/proposal/${encodeURIComponent(district)}?${query.toString()}`);
+  const payload = await fetchJson(`/real/proposal/${encodeURIComponent(district)}?${query}`);
   clearSections();
 
   if (payload.proposal_status === "ok") {
