@@ -293,7 +293,8 @@ function renderJson(data) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const resolvedUrl = new URL(url, window.location.origin).toString();
+  const response = await fetch(resolvedUrl, options);
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.detail || "Request failed.");
@@ -1301,9 +1302,9 @@ function renderError(message) {
 
 function getRealQuery() {
   return new URLSearchParams({
-    street_type: elements.realStreetType.value || "CL",
-    street_name: elements.realStreetName.value,
-    street_number: elements.realStreetNumber.value,
+    street_type: elements.realStreetType.value.trim() || "CL",
+    street_name: elements.realStreetName.value.trim(),
+    street_number: elements.realStreetNumber.value.trim(),
     municipality: "MADRID",
     province: "MADRID",
   });
