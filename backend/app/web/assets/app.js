@@ -969,6 +969,40 @@ async function renderLocationPreview(preview) {
   }
 }
 
+async function safeRenderLocationPreview(preview) {
+  try {
+    await renderLocationPreview(preview);
+  } catch (error) {
+    destroyViewerMap();
+
+    if (!preview || !preview.coordinates) {
+      elements.previewContent.innerHTML =
+        '<div class="placeholder">The site map is not available in this browser for the current result.</div>';
+      return;
+    }
+
+    const coordsLabel = `${preview.coordinates.latitude.toFixed(6)}, ${preview.coordinates.longitude.toFixed(6)}`;
+    elements.previewContent.innerHTML = `
+      <div class="program-item">
+        <h3>Site map fallback</h3>
+        <p class="metric-subtext">
+          The official location data loaded correctly, but the interactive map could not be rendered in this browser.
+        </p>
+        <div class="data-list">
+          <div class="data-row">
+            <strong>Building</strong>
+            <span>${escapeHtml(preview.label || "Selected building")}</span>
+          </div>
+          <div class="data-row">
+            <strong>Coordinates</strong>
+            <span>${coordsLabel}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+}
+
 function renderDemoDistrict(payload) {
   const district = payload.raw_data;
   renderSummaryCards([
@@ -1004,7 +1038,7 @@ function renderDemoDistrict(payload) {
     ],
     district.main_profiles,
   );
-  void renderLocationPreview(null);
+  void safeRenderLocationPreview(null);
 }
 
 function renderDemoBuilding(payload) {
@@ -1038,7 +1072,7 @@ function renderDemoBuilding(payload) {
     { label: "Outdoor space", value: building.outdoor_space ? "Yes" : "No" },
     { label: "Roof usable", value: building.roof_usable ? "Yes" : "No" },
   ]);
-  void renderLocationPreview(null);
+  void safeRenderLocationPreview(null);
 }
 
 function renderProposal(proposal, districtData, buildingData, notes = [], locationPreview = null) {
@@ -1092,7 +1126,7 @@ function renderProposal(proposal, districtData, buildingData, notes = [], locati
   renderClimateBlock(proposal.climate_adaptation_package);
   renderPeoplePrograms(proposal.people_programs || []);
   renderNarrative(proposal.architectural_narrative);
-  void renderLocationPreview(locationPreview);
+  void safeRenderLocationPreview(locationPreview);
 }
 
 function renderRealDistrict(payload) {
@@ -1143,7 +1177,7 @@ function renderRealDistrict(payload) {
   `;
   renderClimateBlock([]);
   renderNarrative(payload.notes.join(" "));
-  void renderLocationPreview(null);
+  void safeRenderLocationPreview(null);
 }
 
 function renderRealBuilding(payload, options = {}) {
@@ -1160,7 +1194,7 @@ function renderRealBuilding(payload, options = {}) {
       ]);
     }
     renderBuildingBlock("Building lookup", [{ label: "Status", value: payload.lookup_status }], payload.notes || []);
-    void renderLocationPreview(null);
+    void safeRenderLocationPreview(null);
     return;
   }
 
@@ -1200,7 +1234,7 @@ function renderRealBuilding(payload, options = {}) {
     ],
     payload.notes || [],
   );
-  void renderLocationPreview(payload.location_preview);
+  void safeRenderLocationPreview(payload.location_preview);
 }
 
 function renderRealLoadSummary(districtPayload, buildingPayload = null) {
@@ -1360,7 +1394,7 @@ async function loadDemoData() {
     ],
   );
   renderPreProposalState(true);
-  void renderLocationPreview(null);
+  void safeRenderLocationPreview(null);
   renderJson({
     district: districtPayload,
     building: buildingPayload,
@@ -1436,7 +1470,7 @@ async function loadRealData() {
       [{ label: "Status", value: "Address lookup could not be completed." }],
       ["The district loaded correctly, but the building lookup failed. Check the address fields and try again."],
     );
-    void renderLocationPreview(null);
+  void safeRenderLocationPreview(null);
   }
 
   renderJson({
