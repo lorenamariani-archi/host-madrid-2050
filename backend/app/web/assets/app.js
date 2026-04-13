@@ -276,7 +276,9 @@ function renderJson(data) {
 }
 
 async function fetchJson(url, options = {}) {
-  const resolvedUrl = new URL(url, window.location.origin).toString();
+  const resolvedUrl = url.startsWith("http")
+    ? url
+    : `${window.location.origin}${url.startsWith("/") ? "" : "/"}${url}`;
   const response = await fetch(resolvedUrl, options);
   const data = await response.json();
   if (!response.ok) {
