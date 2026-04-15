@@ -320,9 +320,7 @@ function resolveRequestUrl(url) {
     return url;
   }
 
-  const anchor = document.createElement("a");
-  anchor.href = url.startsWith("/") ? url : `/${url}`;
-  return anchor.href;
+  return url.startsWith("/") ? url : `/${url}`;
 }
 
 function fetchJsonWithXhr(url) {
