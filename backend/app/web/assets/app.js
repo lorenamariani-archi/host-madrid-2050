@@ -388,6 +388,13 @@ function formatNumber(value) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
+function formatPercent(value) {
+  if (typeof value !== "number") {
+    return "n/a";
+  }
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 function renderTagList(items, className = "") {
   if (!items || items.length === 0) {
     return '<div class="placeholder">No items available.</div>';
@@ -709,7 +716,70 @@ function renderPeoplePrograms(peoplePrograms = []) {
   `;
 }
 
-function renderDistrictNeeds(profilePrograms = {}, districtProfiles = []) {
+function buildDistrictProfileIndicators(profileKey, payload) {
+  const district = payload.normalized_district || {};
+  const summary = payload.raw_summary || {};
+  const ageGroups = summary.age_groups || {};
+  const households = summary.households || {};
+  const facilities = summary.facilities || {};
+  const density = summary.density_per_km2;
+
+  if (profileKey === "retired couple") {
+    const elderlyLivingAlone =
+      Number(households.elderly_women_living_alone || 0) + Number(households.elderly_men_living_alone || 0);
+    return [
+      { label: "Senior share", value: formatPercent(district.seniors_share) },
+      { label: "Senior residents", value: formatNumber(ageGroups.seniors) },
+      { label: "Older adults living alone", value: formatNumber(elderlyLivingAlone) },
+      { label: "Senior centers", value: formatNumber(facilities.senior_centers ?? 0) },
+    ];
+  }
+
+  if (profileKey === "businessman") {
+    return [
+      { label: "Adult share", value: formatPercent(district.adults_share) },
+      { label: "Working-age residents", value: formatNumber(ageGroups.adults) },
+      { label: "District density", value: density ? `${formatNumber(density)} per km²` : "n/a" },
+      { label: "Libraries + cultural spaces", value: formatNumber((facilities.libraries ?? 0) + (facilities.cultural_spaces ?? 0)) },
+    ];
+  }
+
+  if (profileKey === "teenager") {
+    return [
+      { label: "Children share proxy", value: formatPercent(district.children_share) },
+      { label: "Children population proxy", value: formatNumber(ageGroups.children) },
+      { label: "Schools", value: formatNumber(facilities.schools ?? 0) },
+      { label: "Youth centers", value: formatNumber(facilities.youth_centers ?? 0) },
+    ];
+  }
+
+  if (profileKey === "international student") {
+    return [
+      { label: "Young adult share", value: formatPercent(district.young_adults_share) },
+      { label: "Young adults", value: formatNumber(ageGroups.young_adults) },
+      { label: "Libraries", value: formatNumber(facilities.libraries ?? 0) },
+      { label: "Cultural spaces", value: formatNumber(facilities.cultural_spaces ?? 0) },
+    ];
+  }
+
+  if (profileKey === "mom_with_kids") {
+    return [
+      { label: "Children share", value: formatPercent(district.children_share) },
+      { label: "Children", value: formatNumber(ageGroups.children) },
+      { label: "Childcare centers", value: formatNumber(facilities.childcare_centers ?? 0) },
+      { label: "Family support centers", value: formatNumber(facilities.family_support_centers ?? 0) },
+    ];
+  }
+
+  return [
+    { label: "Population", value: formatNumber(summary.population_total) },
+    { label: "District density", value: density ? `${formatNumber(density)} per km²` : "n/a" },
+  ];
+}
+
+function renderDistrictNeeds(payload) {
+  const profilePrograms = payload.profile_programs || payload.indices_preview?.profile_programs || {};
+  const districtProfiles = payload.normalized_district?.main_profiles || [];
   const entries = Object.entries(profilePrograms || {});
   if (!entries.length) {
     elements.peopleProgramContent.innerHTML =
@@ -738,6 +808,7 @@ function renderDistrictNeeds(profilePrograms = {}, districtProfiles = []) {
               (categoryKey) => CATEGORY_KEY_LABELS[categoryKey] || categoryKey,
             );
             const isPriorityProfile = districtProfiles.includes(profileKey);
+            const indicators = buildDistrictProfileIndicators(profileKey, payload);
 
             return `
               <article class="people-program-card" style="--people-accent:${visual.accent}; --people-soft:${visual.soft};">
@@ -756,13 +827,17 @@ function renderDistrictNeeds(profilePrograms = {}, districtProfiles = []) {
                   </span>
                 </div>
                 <div class="people-program-block">
-                  <p class="panel-label">Main need categories</p>
+                  <p class="panel-label">Official indicators</p>
+                  ${renderDataRows(indicators)}
+                </div>
+                <div class="people-program-block">
+                  <p class="panel-label">Program need categories</p>
                   <div class="people-chip-row">
                     ${mappedCategories.map((category) => `<span class="people-chip">${escapeHtml(category)}</span>`).join("")}
                   </div>
                 </div>
                 <div class="people-program-block">
-                  <p class="panel-label">Typical spaces</p>
+                  <p class="panel-label">Typical program needs</p>
                   <div class="people-space-list">
                     ${(profile.spaces || []).map((space) => `<span class="people-space-chip">${escapeHtml(space)}</span>`).join("")}
                   </div>
@@ -1290,15 +1365,15 @@ function renderRealDistrict(payload) {
 
   elements.programContent.innerHTML = `
     <div class="program-item">
-      <h3>District-only preview</h3>
+      <h3>District profile preview</h3>
       <p class="metric-subtext">
-        This district-only path shows neighborhood demand without relying on a host building yet. Add a building address later if you want to move from district needs to a full adaptive reuse proposal.
+        This district-only path shows neighborhood demand without relying on a host building yet. It first explains the official neighborhood profiles and then outlines the types of spaces each group is likely to need.
       </p>
       ${renderTagList(Object.keys(payload.raw_summary.facilities || {}).map((key) => `${key}: ${payload.raw_summary.facilities[key]}`))}
     </div>
   `;
   renderClimateBlock([]);
-  renderDistrictNeeds(payload.profile_programs || payload.indices_preview?.profile_programs, district.main_profiles || []);
+  renderDistrictNeeds(payload);
   renderNarrative(payload.notes.join(" "));
   void safeRenderLocationPreview(null);
 }
@@ -1421,7 +1496,7 @@ function renderPreProposalState(hasBuildingData) {
   elements.climateContent.innerHTML =
     '<div class="placeholder">The climate package will appear after you generate the real proposal.</div>';
   elements.peopleProgramContent.innerHTML =
-    '<div class="placeholder">Neighborhood profile needs appear in district-only mode, and proposal-based people matches appear after you generate the proposal.</div>';
+    '<div class="placeholder">Neighborhood profiles appear in district-only mode, and proposal-based people matches appear after you generate the proposal.</div>';
   elements.narrativeContent.innerHTML =
     '<div class="placeholder">The architectural narrative will appear after you generate the real proposal.</div>';
 }
@@ -1476,12 +1551,12 @@ function getRealQueryString() {
 async function loadRealDistrict() {
   const district = elements.realDistrict.value.trim();
   const refresh = elements.realRefresh.checked ? "?refresh=true" : "";
-  setStatus(`Loading official district data for ${district}...`);
+  setStatus(`Loading official district profiles for ${district}...`);
   const payload = await fetchJson(`/real/district/${encodeURIComponent(district)}${refresh}`);
   clearSections();
   renderRealDistrict(payload);
   renderJson(payload);
-  setStatus(`Official district data for ${district} loaded.`);
+  setStatus(`Official district profiles for ${district} loaded.`);
 }
 
 async function loadRealBuilding() {
