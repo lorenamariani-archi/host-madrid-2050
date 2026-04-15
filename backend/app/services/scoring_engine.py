@@ -220,11 +220,19 @@ def build_profile_programs(district: DistrictData) -> dict[str, dict[str, Any]]:
         profile_needs = PROFILE_NEEDS.get(profile)
         if profile_needs is None:
             continue
+
+        category_spaces = profile_needs.get("category_spaces", {})
+        ordered_spaces = []
+        for category_key in profile_needs["priority_categories"]:
+            for space in category_spaces.get(category_key, profile_needs.get("spaces", [])):
+                if space not in ordered_spaces:
+                    ordered_spaces.append(space)
+
         result[profile] = {
             "label": profile_needs["label"],
             "activity_text": profile_needs["activity_text"],
             "priority_categories": profile_needs["priority_categories"],
-            "spaces": profile_needs["spaces"],
+            "spaces": ordered_spaces,
         }
 
     return result
@@ -240,7 +248,9 @@ def build_grouped_program_from_profiles(district: DistrictData) -> dict[str, lis
 
         for category_key in profile_needs["priority_categories"]:
             category_name = CATEGORY_LABELS[category_key]
-            for space in profile_needs["spaces"]:
+            category_spaces = profile_needs.get("category_spaces", {})
+            spaces = category_spaces.get(category_key, profile_needs.get("spaces", []))
+            for space in spaces:
                 if space not in grouped[category_name]:
                     grouped[category_name].append(space)
 
@@ -264,14 +274,21 @@ def build_people_program_guides(
             if category_name in selected_program:
                 matched_categories.append(category_name)
 
-        matched_spaces = profile_needs["spaces"][:4]
+        category_spaces = profile_needs.get("category_spaces", {})
+        default_spaces = []
+        for category_key in profile_needs["priority_categories"]:
+            for space in category_spaces.get(category_key, profile_needs.get("spaces", [])):
+                if space not in default_spaces:
+                    default_spaces.append(space)
+
+        matched_spaces = default_spaces[:4]
         if matched_categories:
             selected_spaces = {
                 space
                 for category_name in matched_categories
                 for space in selected_program.get(category_name, [])
             }
-            intersected_spaces = [space for space in profile_needs["spaces"] if space in selected_spaces]
+            intersected_spaces = [space for space in default_spaces if space in selected_spaces]
             if intersected_spaces:
                 matched_spaces = intersected_spaces[:4]
 
