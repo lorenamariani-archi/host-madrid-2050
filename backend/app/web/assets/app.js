@@ -43,6 +43,18 @@ const elements = {
   realStreetName: document.getElementById("real-street-name"),
   realStreetNumber: document.getElementById("real-street-number"),
   realRefresh: document.getElementById("real-refresh"),
+  realDistrictNeedsButton: document.getElementById("real-district-needs-button"),
+  realLoadButton: document.getElementById("real-load-button"),
+  realProposalButton: document.getElementById("real-proposal-button"),
+};
+
+const CATEGORY_KEY_LABELS = {
+  green: "Green Infrastructures",
+  sport: "Sport",
+  cultural: "Cultural",
+  learning: "Learning and Innovation",
+  community: "Community",
+  care: "Care and Social Support",
 };
 
 const CATEGORY_VISUALS = {
@@ -265,7 +277,7 @@ function clearSections() {
   elements.programContent.innerHTML = '<div class="placeholder">Program categories and spaces will appear here.</div>';
   elements.climateContent.innerHTML = '<div class="placeholder">Climate adaptation strategies will appear here.</div>';
   elements.peopleProgramContent.innerHTML =
-    '<div class="placeholder">Profile-specific program matches will appear here after you generate a proposal.</div>';
+    '<div class="placeholder">Neighborhood profile needs or proposal-based people matches will appear here.</div>';
   elements.narrativeContent.innerHTML = '<div class="placeholder">The architectural narrative will appear here.</div>';
   destroyViewerMap();
   elements.previewContent.innerHTML = '<div class="placeholder">A focused 2D site map will appear here after a real building lookup.</div>';
@@ -680,6 +692,73 @@ function renderPeoplePrograms(peoplePrograms = []) {
                     ${person.matched_spaces
                       .map((space) => `<span class="people-space-chip">${escapeHtml(space)}</span>`)
                       .join("")}
+                  </div>
+                </div>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDistrictNeeds(profilePrograms = {}, districtProfiles = []) {
+  const entries = Object.entries(profilePrograms || {});
+  if (!entries.length) {
+    elements.peopleProgramContent.innerHTML =
+      '<div class="placeholder">No neighborhood profile needs are available for this district yet.</div>';
+    return;
+  }
+
+  elements.peopleProgramContent.innerHTML = `
+    <section class="people-program-shell">
+      <div class="people-program-header">
+        <div>
+          <p class="panel-label">Neighborhood needs</p>
+          <h3>Profiles currently shaping district demand</h3>
+        </div>
+        <p class="metric-subtext">This district-only view shows the main neighborhood profiles and the program families they are likely to need, before choosing any host building.</p>
+      </div>
+      <div class="people-program-grid">
+        ${entries
+          .map(([profileKey, profile]) => {
+            const visual = PEOPLE_VISUALS[profileKey] || {
+              short: "PP",
+              accent: "#6b7c89",
+              soft: "rgba(107, 124, 137, 0.14)",
+            };
+            const mappedCategories = (profile.priority_categories || []).map(
+              (categoryKey) => CATEGORY_KEY_LABELS[categoryKey] || categoryKey,
+            );
+            const isPriorityProfile = districtProfiles.includes(profileKey);
+
+            return `
+              <article class="people-program-card" style="--people-accent:${visual.accent}; --people-soft:${visual.soft};">
+                <div class="people-program-head">
+                  <div class="people-program-badge">
+                    <span>${visual.short}</span>
+                  </div>
+                  <div>
+                    <h3>${escapeHtml(profile.label)}</h3>
+                    <p>${escapeHtml(profile.activity_text)}</p>
+                  </div>
+                </div>
+                <div class="people-program-meta">
+                  <span class="people-priority-pill ${isPriorityProfile ? "" : "muted-pill"}">
+                    ${isPriorityProfile ? "Current neighborhood profile" : "Secondary district profile"}
+                  </span>
+                </div>
+                <div class="people-program-block">
+                  <p class="panel-label">Main need categories</p>
+                  <div class="people-chip-row">
+                    ${mappedCategories.map((category) => `<span class="people-chip">${escapeHtml(category)}</span>`).join("")}
+                  </div>
+                </div>
+                <div class="people-program-block">
+                  <p class="panel-label">Typical spaces</p>
+                  <div class="people-space-list">
+                    ${(profile.spaces || []).map((space) => `<span class="people-space-chip">${escapeHtml(space)}</span>`).join("")}
                   </div>
                 </div>
               </article>
@@ -1207,13 +1286,13 @@ function renderRealDistrict(payload) {
     <div class="program-item">
       <h3>District-only preview</h3>
       <p class="metric-subtext">
-        This view already estimates district pressure and profile programs. Add a building address to
-        generate the full adaptive reuse proposal.
+        This district-only path shows neighborhood demand without relying on a host building yet. Add a building address later if you want to move from district needs to a full adaptive reuse proposal.
       </p>
       ${renderTagList(Object.keys(payload.raw_summary.facilities || {}).map((key) => `${key}: ${payload.raw_summary.facilities[key]}`))}
     </div>
   `;
   renderClimateBlock([]);
+  renderDistrictNeeds(payload.profile_programs || payload.indices_preview?.profile_programs, district.main_profiles || []);
   renderNarrative(payload.notes.join(" "));
   void safeRenderLocationPreview(null);
 }
@@ -1336,7 +1415,7 @@ function renderPreProposalState(hasBuildingData) {
   elements.climateContent.innerHTML =
     '<div class="placeholder">The climate package will appear after you generate the real proposal.</div>';
   elements.peopleProgramContent.innerHTML =
-    '<div class="placeholder">People-profile program matches will appear after you generate the proposal.</div>';
+    '<div class="placeholder">Neighborhood profile needs appear in district-only mode, and proposal-based people matches appear after you generate the proposal.</div>';
   elements.narrativeContent.innerHTML =
     '<div class="placeholder">The architectural narrative will appear after you generate the real proposal.</div>';
 }
@@ -1498,8 +1577,9 @@ function loadRealExample() {
   runSafe(loadRealData);
 }
 
-document.getElementById("real-load-button").addEventListener("click", () => runSafe(loadRealData));
-document.getElementById("real-proposal-button").addEventListener("click", () => runSafe(loadRealProposal));
+elements.realDistrictNeedsButton.addEventListener("click", () => runSafe(loadRealDistrict));
+elements.realLoadButton.addEventListener("click", () => runSafe(loadRealData));
+elements.realProposalButton.addEventListener("click", () => runSafe(loadRealProposal));
 
 async function initApp() {
   setStatus("Loading the official example...");

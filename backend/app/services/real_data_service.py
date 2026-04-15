@@ -64,11 +64,13 @@ def _fallback_district_payload(district_name: str, *, reason: str, ine_context: 
         "seniors": round(population * local_match["seniors_share"]),
     }
     households = (ine_context or {}).get("households", {})
+    district_preview = run_district_only_analysis(local_match)
 
     return {
         "district": local_match["name"],
         "normalized_district": local_match,
-        "indices_preview": run_district_only_analysis(local_match),
+        "indices_preview": district_preview,
+        "profile_programs": district_preview["profile_programs"],
         "official_sources": {
             "madrid_open_data": {
                 "status": "unavailable",
@@ -143,10 +145,13 @@ def get_real_district_payload(district_name: str, *, refresh: bool = False) -> d
         notes[0] = "District data comes from official Madrid Open Data datasets."
         notes.append("INE household context was unavailable for this request, so household-based inference was reduced.")
 
+    district_preview = run_district_only_analysis(district_data)
+
     return {
         "district": district_data["name"],
         "normalized_district": district_data,
-        "indices_preview": run_district_only_analysis(district_data),
+        "indices_preview": district_preview,
+        "profile_programs": district_preview["profile_programs"],
         "official_sources": {
             "madrid_open_data": official_data["sources"],
             "ine": ine_context["source"],

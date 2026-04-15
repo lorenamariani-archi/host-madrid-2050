@@ -28,9 +28,9 @@
         <div class="hero-panel">
           <p class="panel-label">Suggested flow</p>
           <ol class="flow-list">
-            <li>Start from the auto-loaded official example.</li>
-            <li>Change the district or address and click Load.</li>
-            <li>Click Generate Real Proposal to build the full reuse scenario.</li>
+            <li>Use <strong>Load District Needs</strong> to study neighborhood profiles without choosing a host building.</li>
+            <li>Use <strong>Load District + Building</strong> when you want the full host-building context.</li>
+            <li>Click <strong>Generate Real Proposal</strong> to build the complete reuse scenario.</li>
           </ol>
         </div>
       </header>
@@ -50,10 +50,16 @@
 
           <section class="panel-card" id="real-controls">
             <p class="panel-label">Official-data inputs</p>
+            <p class="panel-note">
+              Choose between a district-only neighborhood needs reading or the full district + building proposal workflow.
+            </p>
             <label class="field">
               <span>District name</span>
               <select id="real-district"></select>
             </label>
+            <p class="panel-note">
+              The address fields below are only needed for the building-based proposal workflow.
+            </p>
             <label class="field">
               <span>Street type</span>
               <input id="real-street-type" type="text" value="CL" placeholder="CL" />
@@ -71,7 +77,8 @@
               <span>Refresh official data</span>
             </label>
             <div class="button-stack">
-              <button id="real-load-button" class="button button-secondary" type="button">Load</button>
+              <button id="real-district-needs-button" class="button button-secondary" type="button">Load District Needs</button>
+              <button id="real-load-button" class="button button-secondary" type="button">Load District + Building</button>
               <button id="real-proposal-button" class="button button-primary" type="button">Generate Real Proposal</button>
             </div>
           </section>
@@ -158,9 +165,9 @@
           </section>
 
           <section class="section-card">
-            <p class="panel-label">People and Program Fit</p>
+            <p class="panel-label">People and Neighborhood Needs</p>
             <div id="people-program-content" class="placeholder">
-              Profile-specific program matches will appear here after you generate a proposal.
+              Neighborhood profile needs or proposal-based people matches will appear here.
             </div>
           </section>
 
