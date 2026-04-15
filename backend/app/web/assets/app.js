@@ -288,34 +288,25 @@ function renderJson(data) {
 }
 
 async function fetchJson(url, options = {}) {
-  const normalizedRelativeUrl = url.startsWith("http")
-    ? url
-    : `${url.startsWith("/") ? "" : "/"}${url}`;
-  const candidateUrls = url.startsWith("http")
-    ? [url]
-    : [normalizedRelativeUrl, `${window.location.protocol}//${window.location.host}${normalizedRelativeUrl}`];
+  const candidateUrl = resolveRequestUrl(url);
 
   let lastError = null;
 
-  for (const candidateUrl of candidateUrls) {
-    try {
-      const response = await fetch(candidateUrl, options);
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.detail || "Request failed.");
-      }
-      return data;
-    } catch (error) {
-      lastError = error;
+  try {
+    const response = await fetch(candidateUrl, options);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Request failed.");
     }
+    return data;
+  } catch (error) {
+    lastError = error;
   }
 
-  for (const candidateUrl of candidateUrls) {
-    try {
-      return await fetchJsonWithXhr(candidateUrl);
-    } catch (error) {
-      lastError = error;
-    }
+  try {
+    return await fetchJsonWithXhr(candidateUrl);
+  } catch (error) {
+    lastError = error;
   }
 
   if (lastError instanceof Error) {
@@ -324,12 +315,27 @@ async function fetchJson(url, options = {}) {
   throw new Error("Request failed.");
 }
 
+function resolveRequestUrl(url) {
+  if (url.startsWith("http")) {
+    return url;
+  }
+
+  const anchor = document.createElement("a");
+  anchor.href = url.startsWith("/") ? url : `/${url}`;
+  return anchor.href;
+}
+
 function fetchJsonWithXhr(url) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("GET", url, true);
-    request.responseType = "text";
-    request.setRequestHeader("Accept", "application/json");
+
+    try {
+      request.open("GET", url, true);
+      request.setRequestHeader("Accept", "application/json");
+    } catch (error) {
+      reject(error);
+      return;
+    }
 
     request.onload = () => {
       try {
