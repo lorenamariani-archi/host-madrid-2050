@@ -276,15 +276,68 @@ function renderJson(data) {
 }
 
 async function fetchJson(url, options = {}) {
-  const resolvedUrl = url.startsWith("http")
+  const normalizedRelativeUrl = url.startsWith("http")
     ? url
-    : `${window.location.origin}${url.startsWith("/") ? "" : "/"}${url}`;
-  const response = await fetch(resolvedUrl, options);
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.detail || "Request failed.");
+    : `${url.startsWith("/") ? "" : "/"}${url}`;
+  const candidateUrls = url.startsWith("http")
+    ? [url]
+    : [normalizedRelativeUrl, `${window.location.protocol}//${window.location.host}${normalizedRelativeUrl}`];
+
+  let lastError = null;
+
+  for (const candidateUrl of candidateUrls) {
+    try {
+      const response = await fetch(candidateUrl, options);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Request failed.");
+      }
+      return data;
+    } catch (error) {
+      lastError = error;
+    }
   }
-  return data;
+
+  for (const candidateUrl of candidateUrls) {
+    try {
+      return await fetchJsonWithXhr(candidateUrl);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error("Request failed.");
+}
+
+function fetchJsonWithXhr(url) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("GET", url, true);
+    request.responseType = "text";
+    request.setRequestHeader("Accept", "application/json");
+
+    request.onload = () => {
+      try {
+        const data = JSON.parse(request.responseText || "{}");
+        if (request.status >= 200 && request.status < 300) {
+          resolve(data);
+          return;
+        }
+        reject(new Error(data.detail || "Request failed."));
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    request.onerror = () => {
+      reject(new Error("Request failed."));
+    };
+
+    request.send();
+  });
 }
 
 async function loadDistrictOptions() {
