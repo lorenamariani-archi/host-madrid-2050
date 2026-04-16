@@ -1,6 +1,8 @@
 const state = {
   viewerMap: null,
   viewerEngine: null,
+  activeRequestToken: 0,
+  isLoading: false,
 };
 
 const fallbackMadridDistricts = [
@@ -43,7 +45,6 @@ const elements = {
   realStreetName: document.getElementById("real-street-name"),
   realStreetNumber: document.getElementById("real-street-number"),
   realRefresh: document.getElementById("real-refresh"),
-  realDistrictNeedsButton: document.getElementById("real-district-needs-button"),
   realLoadButton: document.getElementById("real-load-button"),
   realProposalButton: document.getElementById("real-proposal-button"),
 };
@@ -260,9 +261,11 @@ const PEOPLE_VISUALS = {
   },
 };
 
+const STALE_REQUEST_MESSAGE = "__HOST_STALE_REQUEST__";
+
 function populateRealDistricts(districts) {
   elements.realDistrict.innerHTML = districts
-    .map((district) => `<option value="${district}">${district}</option>`)
+    .map((district) => `<option value="${escapeHtml(district)}">${escapeHtml(district)}</option>`)
     .join("");
 }
 
@@ -283,8 +286,98 @@ function clearSections() {
   elements.previewContent.innerHTML = '<div class="placeholder">A focused 2D site map will appear here after a real building lookup.</div>';
 }
 
+function setControlsDisabled(disabled) {
+  state.isLoading = disabled;
+
+  [
+    elements.realDistrict,
+    elements.realStreetType,
+    elements.realStreetName,
+    elements.realStreetNumber,
+    elements.realRefresh,
+    elements.realLoadButton,
+    elements.realProposalButton,
+  ].forEach((element) => {
+    if (element) {
+      element.disabled = disabled;
+    }
+  });
+}
+
 function renderJson(data) {
   elements.rawJson.textContent = JSON.stringify(data, null, 2);
+}
+
+function buildUnexpectedResponseError(url, status, contentType, rawText) {
+  const snippet = (rawText || "").trim().slice(0, 120);
+
+  if (snippet.startsWith("<")) {
+    return new Error(
+      `Expected JSON from ${url}, but received HTML instead (${status}, ${contentType || "unknown content type"}). ` +
+        "This usually means the request hit the wrong route, a missing route, or a frontend HTML page instead of the API."
+    );
+  }
+
+  return new Error(
+    `Expected JSON from ${url}, but received an invalid response instead (${status}, ${contentType || "unknown content type"}): ${snippet || "[empty response]"}`
+  );
+}
+
+function extractApiError(data, fallbackMessage) {
+  if (!data || typeof data !== "object") {
+    return fallbackMessage;
+  }
+
+  return data.detail || data.error || fallbackMessage;
+}
+
+function isGenericRequestMessage(message) {
+  return !message || message === "Request failed." || message === "Failed to fetch";
+}
+
+function buildNetworkError(url) {
+  if (window.location.protocol === "file:") {
+    return new Error(
+      `Could not reach ${url}. This page is being opened as a local file, so the API is not available. Start FastAPI and open http://127.0.0.1:8000/app instead.`
+    );
+  }
+
+  return new Error(
+    `Could not reach ${url}. Make sure the FastAPI server is running and that you opened the site from the backend URL, such as http://127.0.0.1:8000/app.`
+  );
+}
+
+function chooseMoreHelpfulError(primaryError, secondaryError) {
+  if (!(primaryError instanceof Error)) {
+    return secondaryError;
+  }
+
+  if (!(secondaryError instanceof Error)) {
+    return primaryError;
+  }
+
+  const primaryMessage = primaryError.message || "";
+  const secondaryMessage = secondaryError.message || "";
+
+  if (isGenericRequestMessage(primaryMessage) && !isGenericRequestMessage(secondaryMessage)) {
+    return secondaryError;
+  }
+
+  return primaryError;
+}
+
+async function parseJsonResponse(response, url) {
+  const rawText = await response.text();
+
+  if (!rawText) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch (error) {
+    throw buildUnexpectedResponseError(url, response.status, response.headers.get("content-type"), rawText);
+  }
 }
 
 async function fetchJson(url, options = {}) {
@@ -294,25 +387,29 @@ async function fetchJson(url, options = {}) {
 
   try {
     const response = await fetch(candidateUrl, options);
-    const data = await response.json();
+    const data = await parseJsonResponse(response, candidateUrl);
     if (!response.ok) {
-      throw new Error(data.detail || "Request failed.");
+      throw new Error(extractApiError(data, `Request failed with status ${response.status}.`));
     }
     return data;
   } catch (error) {
     lastError = error;
   }
 
+  if (lastError instanceof Error && !isGenericRequestMessage(lastError.message)) {
+    throw lastError;
+  }
+
   try {
     return await fetchJsonWithXhr(candidateUrl);
   } catch (error) {
-    lastError = error;
+    lastError = chooseMoreHelpfulError(lastError, error);
   }
 
   if (lastError instanceof Error) {
     throw lastError;
   }
-  throw new Error("Request failed.");
+  throw buildNetworkError(candidateUrl);
 }
 
 function resolveRequestUrl(url) {
@@ -337,19 +434,27 @@ function fetchJsonWithXhr(url) {
 
     request.onload = () => {
       try {
-        const data = JSON.parse(request.responseText || "{}");
+        const rawText = request.responseText || "";
+        const data = rawText ? JSON.parse(rawText) : {};
         if (request.status >= 200 && request.status < 300) {
           resolve(data);
           return;
         }
-        reject(new Error(data.detail || "Request failed."));
+        reject(new Error(extractApiError(data, `Request failed with status ${request.status}.`)));
       } catch (error) {
-        reject(error);
+        reject(
+          buildUnexpectedResponseError(
+            url,
+            request.status,
+            request.getResponseHeader("Content-Type"),
+            request.responseText || ""
+          )
+        );
       }
     };
 
     request.onerror = () => {
-      reject(new Error("Request failed."));
+      reject(buildNetworkError(url));
     };
 
     request.send();
@@ -368,9 +473,9 @@ async function loadDistrictOptions() {
 function makeCard(title, value, subtitle) {
   return `
     <article class="summary-card">
-      <h3>${title}</h3>
-      <div class="metric-value">${value}</div>
-      <div class="metric-subtext">${subtitle}</div>
+      <h3>${escapeHtml(title)}</h3>
+      <div class="metric-value">${escapeHtml(value)}</div>
+      <div class="metric-subtext">${escapeHtml(subtitle)}</div>
     </article>
   `;
 }
@@ -397,7 +502,9 @@ function renderTagList(items, className = "") {
   if (!items || items.length === 0) {
     return '<div class="placeholder">No items available.</div>';
   }
-  return `<div class="tag-list">${items.map((item) => `<span class="tag ${className}">${item}</span>`).join("")}</div>`;
+  return `<div class="tag-list">${items
+    .map((item) => `<span class="tag ${className}">${escapeHtml(item)}</span>`)
+    .join("")}</div>`;
 }
 
 function renderDataRows(rows) {
@@ -407,8 +514,8 @@ function renderDataRows(rows) {
         .map(
           (row) => `
             <div class="data-row">
-              <strong>${row.label}</strong>
-              <span>${row.value}</span>
+              <strong>${escapeHtml(row.label)}</strong>
+              <span>${escapeHtml(row.value)}</span>
             </div>
           `,
         )
@@ -419,7 +526,7 @@ function renderDataRows(rows) {
 
 function renderDistrictBlock(title, rows, profiles = []) {
   elements.districtContent.innerHTML = `
-    <h3>${title}</h3>
+    <h3>${escapeHtml(title)}</h3>
     ${renderDataRows(rows)}
     <div style="height: 14px"></div>
     <p class="panel-label">Main profiles</p>
@@ -429,11 +536,15 @@ function renderDistrictBlock(title, rows, profiles = []) {
 
 function renderBuildingBlock(title, rows, notes = []) {
   elements.buildingContent.innerHTML = `
-    <h3>${title}</h3>
+    <h3>${escapeHtml(title)}</h3>
     ${renderDataRows(rows)}
     <div style="height: 14px"></div>
     <p class="panel-label">Notes</p>
-    ${notes.length ? `<ul>${notes.map((note) => `<li>${note}</li>`).join("")}</ul>` : '<div class="placeholder">No notes available.</div>'}
+    ${
+      notes.length
+        ? `<ul>${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>`
+        : '<div class="placeholder">No notes available.</div>'
+    }
   `;
 }
 
@@ -989,7 +1100,7 @@ function renderClimateBlock(climatePackage) {
 
 function renderNarrative(text) {
   elements.narrativeContent.innerHTML = text
-    ? `<p>${text}</p>`
+    ? `<p>${escapeHtml(text)}</p>`
     : '<div class="placeholder">No narrative available yet.</div>';
 }
 
@@ -1101,8 +1212,17 @@ function initializeLeafletMap(preview) {
   return "Leaflet";
 }
 
+function hasValidPreviewCoordinates(preview) {
+  return Boolean(
+    preview &&
+      preview.coordinates &&
+      Number.isFinite(preview.coordinates.latitude) &&
+      Number.isFinite(preview.coordinates.longitude),
+  );
+}
+
 async function renderLocationPreview(preview) {
-  if (!preview || !preview.official_preview) {
+  if (!preview || !preview.official_preview || !hasValidPreviewCoordinates(preview)) {
     destroyViewerMap();
     elements.previewContent.innerHTML = '<div class="placeholder">No site map is available for this result yet.</div>';
     return;
@@ -1141,7 +1261,7 @@ async function renderLocationPreview(preview) {
           HOST now gives you a cleaner architectural site map with a strong building marker, tight framing, and imagery as the default reading mode.
         </p>
       </div>
-      ${notes.length ? `<ul>${notes.map((note) => `<li>${note}</li>`).join("")}</ul>` : ""}
+      ${notes.length ? `<ul>${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}
     </div>
   `;
 
@@ -1326,39 +1446,44 @@ function renderProposal(proposal, districtData, buildingData, notes = [], locati
 }
 
 function renderRealDistrict(payload) {
-  const district = payload.normalized_district;
+  const district = payload.normalized_district || {};
+  const indicesPreview = payload.indices_preview || {};
+  const urbanDeficitIndex = indicesPreview.urban_deficit_index || {};
+  const demographicPressureIndex = indicesPreview.demographic_pressure_index || {};
+  const rawSummary = payload.raw_summary || {};
+
   renderSummaryCards([
     {
       title: "Urban Deficit Index",
-      value: payload.indices_preview.urban_deficit_index.score,
+      value: urbanDeficitIndex.score ?? "n/a",
       subtitle: "Based on normalized official facility data.",
     },
     {
       title: "Demographic Pressure Index",
-      value: payload.indices_preview.demographic_pressure_index.score,
+      value: demographicPressureIndex.score ?? "n/a",
       subtitle: "Based on official demographic structure.",
     },
     {
       title: "Population",
-      value: formatNumber(payload.raw_summary.population_total),
+      value: formatNumber(rawSummary.population_total),
       subtitle: "Official Madrid district population.",
     },
     {
       title: "Density",
-      value: formatNumber(payload.raw_summary.density_per_km2),
+      value: formatNumber(rawSummary.density_per_km2),
       subtitle: "Official density per km².",
     },
   ]);
 
   renderDistrictBlock(
-    district.name,
+    district.name || "District profile",
     [
-      { label: "Children share", value: `${Math.round(district.children_share * 100)}%` },
-      { label: "Young adults share", value: `${Math.round(district.young_adults_share * 100)}%` },
-      { label: "Adults share", value: `${Math.round(district.adults_share * 100)}%` },
-      { label: "Seniors share", value: `${Math.round(district.seniors_share * 100)}%` },
+      { label: "Children share", value: formatPercent(district.children_share) },
+      { label: "Young adults share", value: formatPercent(district.young_adults_share) },
+      { label: "Adults share", value: formatPercent(district.adults_share) },
+      { label: "Seniors share", value: formatPercent(district.seniors_share) },
     ],
-    district.main_profiles,
+    district.main_profiles || [],
   );
 
   elements.programContent.innerHTML = `
@@ -1367,12 +1492,12 @@ function renderRealDistrict(payload) {
       <p class="metric-subtext">
         This district-only path shows neighborhood demand without relying on a host building yet. It first explains the official neighborhood profiles and then outlines the types of spaces each group is likely to need.
       </p>
-      ${renderTagList(Object.keys(payload.raw_summary.facilities || {}).map((key) => `${key}: ${payload.raw_summary.facilities[key]}`))}
+      ${renderTagList(Object.keys(rawSummary.facilities || {}).map((key) => `${key}: ${rawSummary.facilities[key]}`))}
     </div>
   `;
   renderClimateBlock([]);
   renderDistrictNeeds(payload);
-  renderNarrative(payload.notes.join(" "));
+  renderNarrative((payload.notes || []).join(" "));
   void safeRenderLocationPreview(null);
 }
 
@@ -1395,12 +1520,13 @@ function renderRealBuilding(payload, options = {}) {
   }
 
   const building = payload.normalized_building;
+  const capacity = payload.architectural_capacity_index || {};
   if (updateSummary) {
     renderSummaryCards([
       {
         title: "Architectural Capacity",
-        value: payload.architectural_capacity_index.score,
-        subtitle: `Band: ${payload.architectural_capacity_index.capacity_band}`,
+        value: capacity.score ?? "n/a",
+        subtitle: `Band: ${capacity.capacity_band || "n/a"}`,
       },
       {
         title: "Total Area",
@@ -1434,15 +1560,21 @@ function renderRealBuilding(payload, options = {}) {
 }
 
 function renderRealLoadSummary(districtPayload, buildingPayload = null) {
+  const districtIndices = districtPayload.indices_preview || {};
+  const districtUrbanDeficit = districtIndices.urban_deficit_index || {};
+  const districtDemographicPressure = districtIndices.demographic_pressure_index || {};
+  const districtSummary = districtPayload.raw_summary || {};
+  const buildingCapacity = buildingPayload?.architectural_capacity_index || {};
+
   const cards = [
     {
       title: "Urban Deficit Index",
-      value: districtPayload.indices_preview.urban_deficit_index.score,
+      value: districtUrbanDeficit.score ?? "n/a",
       subtitle: "Based on normalized official facility data.",
     },
     {
       title: "Demographic Pressure Index",
-      value: districtPayload.indices_preview.demographic_pressure_index.score,
+      value: districtDemographicPressure.score ?? "n/a",
       subtitle: "Based on official demographic structure.",
     },
   ];
@@ -1451,8 +1583,8 @@ function renderRealLoadSummary(districtPayload, buildingPayload = null) {
     cards.push(
       {
         title: "Architectural Capacity",
-        value: buildingPayload.architectural_capacity_index.score,
-        subtitle: `Band: ${buildingPayload.architectural_capacity_index.capacity_band}`,
+        value: buildingCapacity.score ?? "n/a",
+        subtitle: `Band: ${buildingCapacity.capacity_band || "n/a"}`,
       },
       {
         title: "Total Area",
@@ -1464,7 +1596,7 @@ function renderRealLoadSummary(districtPayload, buildingPayload = null) {
     cards.push(
       {
         title: "Population",
-        value: formatNumber(districtPayload.raw_summary.population_total),
+        value: formatNumber(districtSummary.population_total),
         subtitle: "Official Madrid district population.",
       },
       {
@@ -1546,31 +1678,62 @@ function getRealQueryString() {
   return params.map(([key, value]) => `${encodeURIComponent(key)}=${encodeQueryValue(value)}`).join("&");
 }
 
-async function loadRealDistrict() {
-  const district = elements.realDistrict.value.trim();
+function getSelectedDistrict() {
+  return elements.realDistrict.value.trim();
+}
+
+function ensureDistrictSelected() {
+  const district = getSelectedDistrict();
+  if (!district) {
+    throw new Error("Please choose a district before loading data.");
+  }
+  return district;
+}
+
+function hasBuildingAddress() {
+  return Boolean(elements.realStreetName.value.trim() && elements.realStreetNumber.value.trim());
+}
+
+function getRequiredBuildingQueryString() {
+  if (!hasBuildingAddress()) {
+    throw new Error("Please enter both a street name and street number for the building lookup.");
+  }
+  return getRealQueryString();
+}
+
+function assertActiveRequest(token) {
+  if (token !== state.activeRequestToken) {
+    throw new Error(STALE_REQUEST_MESSAGE);
+  }
+}
+
+async function loadRealDistrict(token) {
+  const district = ensureDistrictSelected();
   const refresh = elements.realRefresh.checked ? "?refresh=true" : "";
   setStatus(`Loading official district profiles for ${district}...`);
   const payload = await fetchJson(`/real/district/${encodeURIComponent(district)}${refresh}`);
+  assertActiveRequest(token);
   clearSections();
   renderRealDistrict(payload);
   renderJson(payload);
   setStatus(`Official district profiles for ${district} loaded.`);
 }
 
-async function loadRealBuilding() {
-  const query = getRealQueryString();
+async function loadRealBuilding(token) {
+  const query = getRequiredBuildingQueryString();
   setStatus("Looking up the official building data...");
   const payload = await fetchJson(`/real/building/by-address?${query}`);
+  assertActiveRequest(token);
   clearSections();
   renderRealBuilding(payload);
   renderJson(payload);
   setStatus("Official building lookup finished.");
 }
 
-async function loadRealData() {
-  const district = elements.realDistrict.value.trim();
+async function loadRealData(token) {
+  const district = ensureDistrictSelected();
   const districtRefresh = elements.realRefresh.checked ? "?refresh=true" : "";
-  const buildingQuery = getRealQueryString();
+  const buildingQuery = getRequiredBuildingQueryString();
 
   setStatus(`Loading official district and building data for ${district}...`);
 
@@ -1578,6 +1741,7 @@ async function loadRealData() {
     fetchJson(`/real/district/${encodeURIComponent(district)}${districtRefresh}`),
     fetchJson(`/real/building/by-address?${buildingQuery}`),
   ]);
+  assertActiveRequest(token);
 
   if (districtResult.status !== "fulfilled") {
     throw districtResult.reason;
@@ -1616,14 +1780,15 @@ async function loadRealData() {
   );
 }
 
-async function loadRealProposal() {
-  const district = elements.realDistrict.value.trim();
+async function loadRealProposal(token) {
+  const district = ensureDistrictSelected();
   let query = getRealQueryString();
   if (elements.realRefresh.checked) {
     query = `${query}&refresh=true`;
   }
   setStatus(`Generating official-data proposal for ${district}...`);
   const payload = await fetchJson(`/real/proposal/${encodeURIComponent(district)}?${query}`);
+  assertActiveRequest(token);
   clearSections();
 
   if (payload.proposal_status === "ok") {
@@ -1639,31 +1804,50 @@ async function loadRealProposal() {
   setStatus(`Official-data proposal for ${district} loaded.`);
 }
 
+async function loadRealSelection(token) {
+  if (hasBuildingAddress()) {
+    await loadRealData(token);
+    return;
+  }
+
+  await loadRealDistrict(token);
+}
+
 async function runSafe(action) {
+  const requestToken = state.activeRequestToken + 1;
+  state.activeRequestToken = requestToken;
+  setControlsDisabled(true);
+
   try {
-    await action();
+    await action(requestToken);
   } catch (error) {
+    if (error?.message === STALE_REQUEST_MESSAGE) {
+      return;
+    }
     renderError(error.message || "Something went wrong.");
+  } finally {
+    if (requestToken === state.activeRequestToken) {
+      setControlsDisabled(false);
+    }
   }
 }
 
-function loadRealExample() {
+async function loadRealExample() {
   elements.realDistrict.value = "Centro";
   elements.realStreetType.value = "CL";
   elements.realStreetName.value = "ALCALA";
   elements.realStreetNumber.value = "45";
   elements.realRefresh.checked = false;
-  runSafe(loadRealData);
+  await runSafe(loadRealData);
 }
 
-elements.realDistrictNeedsButton.addEventListener("click", () => runSafe(loadRealDistrict));
-elements.realLoadButton.addEventListener("click", () => runSafe(loadRealData));
+elements.realLoadButton.addEventListener("click", () => runSafe(loadRealSelection));
 elements.realProposalButton.addEventListener("click", () => runSafe(loadRealProposal));
 
 async function initApp() {
   setStatus("Loading the official example...");
   await loadDistrictOptions();
-  loadRealExample();
+  await loadRealExample();
 }
 
 void initApp();

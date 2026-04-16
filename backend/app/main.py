@@ -26,6 +26,17 @@ OPENAPI_TAGS = [
 ]
 
 
+class NoCacheStaticFiles(StaticFiles):
+    """Serve frontend assets with no-cache headers so UI updates appear immediately."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="HOST Backend",
@@ -43,13 +54,20 @@ def create_app() -> FastAPI:
         openapi_tags=OPENAPI_TAGS,
     )
     app.include_router(router)
-    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+    app.mount("/assets", NoCacheStaticFiles(directory=ASSETS_DIR), name="assets")
 
     @app.get("/app", include_in_schema=False)
     def frontend_app() -> FileResponse:
         """Serve the small HOST frontend used for demos and presentations."""
 
-        return FileResponse(WEB_DIR / "index.html")
+        return FileResponse(
+            WEB_DIR / "index.html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     return app
 
