@@ -1707,6 +1707,13 @@ function assertActiveRequest(token) {
   }
 }
 
+function settlePromise(promise) {
+  return promise.then(
+    (value) => ({ status: "fulfilled", value }),
+    (reason) => ({ status: "rejected", reason }),
+  );
+}
+
 async function loadRealDistrict(token) {
   const district = ensureDistrictSelected();
   const refresh = elements.realRefresh.checked ? "?refresh=true" : "";
@@ -1737,9 +1744,9 @@ async function loadRealData(token) {
 
   setStatus(`Loading official district and building data for ${district}...`);
 
-  const [districtResult, buildingResult] = await Promise.allSettled([
-    fetchJson(`/real/district/${encodeURIComponent(district)}${districtRefresh}`),
-    fetchJson(`/real/building/by-address?${buildingQuery}`),
+  const [districtResult, buildingResult] = await Promise.all([
+    settlePromise(fetchJson(`/real/district/${encodeURIComponent(district)}${districtRefresh}`)),
+    settlePromise(fetchJson(`/real/building/by-address?${buildingQuery}`)),
   ]);
   assertActiveRequest(token);
 
