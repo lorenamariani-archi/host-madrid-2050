@@ -5,9 +5,42 @@ new real-data routes. Keeping them together makes the project easier to explain
 in a TFG and avoids circular imports between services.
 """
 
+import re
+import unicodedata
 from typing import Dict, List, Optional, TypedDict, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _normalize_public_text(value: str) -> str:
+    compact = " ".join(str(value or "").strip().split())
+    if not compact:
+        return ""
+    normalized = unicodedata.normalize("NFKD", compact)
+    without_accents = "".join(character for character in normalized if not unicodedata.combining(character))
+    return without_accents.upper()
+
+
+def _normalize_street_type(value: str) -> str:
+    normalized = _normalize_public_text(value)
+    aliases = {
+        "CALLE": "CL",
+        "C/": "CL",
+        "CL.": "CL",
+        "AVENIDA": "AV",
+        "AV.": "AV",
+        "AVDA": "AV",
+        "AVDA.": "AV",
+        "PASEO": "PS",
+        "PLAZA": "PZ",
+        "CARRETERA": "CR",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _normalize_street_name(value: str) -> str:
+    normalized = _normalize_public_text(value)
+    return re.sub(r"^(CALLE|CL|C/|AVENIDA|AVDA|AV\.|AV|PASEO|PS|PLAZA|PZ|CARRETERA|CR)\s+", "", normalized)
 
 
 class DistrictData(TypedDict):
@@ -186,6 +219,32 @@ class OfficialAddressInput(BaseModel):
             }
         }
     }
+
+    @field_validator("province", "municipality", "block", "stair", "floor", "door", mode="before")
+    @classmethod
+    def normalize_public_fields(cls, value: str) -> str:
+        return _normalize_public_text(str(value or ""))
+
+    @field_validator("street_type", mode="before")
+    @classmethod
+    def normalize_street_type_field(cls, value: str) -> str:
+        return _normalize_street_type(str(value or "CL")) or "CL"
+
+    @field_validator("street_name", mode="before")
+    @classmethod
+    def normalize_street_name_field(cls, value: str) -> str:
+        normalized = _normalize_street_name(str(value or ""))
+        if not normalized:
+            raise ValueError("street_name cannot be empty")
+        return normalized
+
+    @field_validator("street_number", mode="before")
+    @classmethod
+    def normalize_street_number_field(cls, value: str) -> str:
+        normalized = _normalize_public_text(str(value or ""))
+        if not normalized:
+            raise ValueError("street_number cannot be empty")
+        return normalized
 
 
 class BuildingOverridesInput(BaseModel):
