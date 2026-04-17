@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Any
 
 from ..data.catalog import DISTRICT_DATA
 from ..models.schemas import BuildingOverridesInput, OfficialAddressInput
+from .cache_utils import load_json_cache, store_json_cache
 from .catastro_api import CatastroApiError, get_catastro_coordinates, lookup_catastro_by_address
 from .data_normalizers import build_host_building_from_catastro, build_host_district_from_official_data
 from .ine_api import IneApiError, clear_ine_cache, get_madrid_city_household_statistics
@@ -18,10 +20,34 @@ class RealDataServiceError(RuntimeError):
     """Raised when a real-data endpoint cannot assemble enough information."""
 
 
+DISTRICT_CACHE_TTL_SECONDS = 60 * 60 * 6
+BUILDING_CACHE_TTL_SECONDS = 60 * 60 * 24
+PROPOSAL_CACHE_TTL_SECONDS = 60 * 60 * 6
+
+
 def _refresh_if_needed(refresh: bool) -> None:
     if refresh:
         clear_madrid_cache()
         clear_ine_cache()
+
+
+def _district_cache_key(district_name: str) -> str:
+    return f"real_district_v1:{normalize_district_name(district_name)}"
+
+
+def _building_cache_key(address: OfficialAddressInput, overrides: BuildingOverridesInput | None) -> str:
+    overrides_payload = overrides.model_dump(exclude_none=True) if overrides else {}
+    return f"real_building_v1:{address.model_dump()}:{overrides_payload}"
+
+
+def _proposal_cache_key(
+    district_name: str,
+    address: OfficialAddressInput | None,
+    overrides: BuildingOverridesInput | None,
+) -> str:
+    normalized_address = address.model_dump() if address else {}
+    overrides_payload = overrides.model_dump(exclude_none=True) if overrides else {}
+    return f"real_proposal_v1:{normalize_district_name(district_name)}:{normalized_address}:{overrides_payload}"
 
 
 def _fallback_district_payload(district_name: str, *, reason: str, ine_context: dict[str, Any] | None) -> dict[str, Any]:
@@ -102,28 +128,38 @@ def _fallback_district_payload(district_name: str, *, reason: str, ine_context: 
 def get_real_district_payload(district_name: str, *, refresh: bool = False) -> dict[str, Any]:
     _refresh_if_needed(refresh)
 
+    cache_key = _district_cache_key(district_name)
+    if not refresh:
+        cached = load_json_cache(cache_key, ttl_seconds=DISTRICT_CACHE_TTL_SECONDS)
+        if cached is not None:
+            return cached
+
     official_data = None
     ine_context: dict[str, Any] = {}
     madrid_error: str | None = None
     ine_error: str | None = None
 
-    try:
-        official_data = get_madrid_district_official_data(district_name)
-    except MadridOpenDataError as exc:
-        madrid_error = str(exc)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        official_future = executor.submit(get_madrid_district_official_data, district_name)
+        ine_future = executor.submit(get_madrid_city_household_statistics)
 
-    try:
-        ine_context = get_madrid_city_household_statistics()
-    except IneApiError as exc:
-        ine_error = str(exc)
-        ine_context = {
-            "households": {},
-            "source": {
-                "status": "unavailable",
-                "error": ine_error,
-                "mode": "missing_official_context",
-            },
-        }
+        try:
+            official_data = official_future.result()
+        except MadridOpenDataError as exc:
+            madrid_error = str(exc)
+
+        try:
+            ine_context = ine_future.result()
+        except IneApiError as exc:
+            ine_error = str(exc)
+            ine_context = {
+                "households": {},
+                "source": {
+                    "status": "unavailable",
+                    "error": ine_error,
+                    "mode": "missing_official_context",
+                },
+            }
 
     if official_data is None:
         payload = _fallback_district_payload(
@@ -133,6 +169,7 @@ def get_real_district_payload(district_name: str, *, refresh: bool = False) -> d
         )
         if ine_error:
             payload["notes"].append("INE household context was also unavailable, so household-based inference was reduced.")
+        store_json_cache(cache_key, payload)
         return payload
 
     district_data, normalized_context = build_host_district_from_official_data(official_data)
@@ -147,7 +184,7 @@ def get_real_district_payload(district_name: str, *, refresh: bool = False) -> d
 
     district_preview = run_district_only_analysis(district_data)
 
-    return {
+    payload = {
         "district": district_data["name"],
         "normalized_district": district_data,
         "indices_preview": district_preview,
@@ -167,6 +204,8 @@ def get_real_district_payload(district_name: str, *, refresh: bool = False) -> d
         "supplemental_city_context": ine_context,
         "notes": notes,
     }
+    store_json_cache(cache_key, payload)
+    return payload
 
 
 def get_real_building_payload(
@@ -174,6 +213,11 @@ def get_real_building_payload(
     *,
     overrides: BuildingOverridesInput | None = None,
 ) -> dict[str, Any]:
+    cache_key = _building_cache_key(address, overrides)
+    cached = load_json_cache(cache_key, ttl_seconds=BUILDING_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
     try:
         catastro_data = lookup_catastro_by_address(address)
     except CatastroApiError as exc:
@@ -206,6 +250,7 @@ def get_real_building_payload(
         payload["architectural_capacity_index"] = calculate_architectural_capacity_index(building_data)
         payload["normalization_context"] = normalization_context
 
+    store_json_cache(cache_key, payload)
     return payload
 
 
@@ -216,29 +261,52 @@ def get_real_proposal_payload(
     overrides: BuildingOverridesInput | None = None,
     refresh: bool = False,
 ) -> dict[str, Any]:
-    district_payload = get_real_district_payload(district_name, refresh=refresh)
-    if not district_payload:
-        return {}
+    cache_key = _proposal_cache_key(district_name, address, overrides)
+    if not refresh:
+        cached = load_json_cache(cache_key, ttl_seconds=PROPOSAL_CACHE_TTL_SECONDS)
+        if cached is not None:
+            return cached
 
     if address is None:
-        return {
+        district_payload = get_real_district_payload(district_name, refresh=refresh)
+        if not district_payload:
+            return {}
+        payload = {
             **district_payload,
             "proposal_status": "partial",
             "notes": district_payload["notes"] + ["No structured building address was provided, so only district-level analysis is available."],
         }
+        store_json_cache(cache_key, payload)
+        return payload
 
-    building_payload = get_real_building_payload(address, overrides=overrides)
+    if refresh:
+        district_payload = get_real_district_payload(district_name, refresh=True)
+        if not district_payload:
+            return {}
+        building_payload = get_real_building_payload(address, overrides=overrides)
+    else:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            district_future = executor.submit(get_real_district_payload, district_name, refresh=False)
+            building_future = executor.submit(get_real_building_payload, address, overrides=overrides)
+            district_payload = district_future.result()
+            building_payload = building_future.result()
+
+    if not district_payload:
+        return {}
+
     normalized_building = building_payload.get("normalized_building")
     if normalized_building is None:
-        return {
+        payload = {
             **district_payload,
             "proposal_status": "partial",
             "building_lookup": building_payload,
             "notes": district_payload["notes"] + ["The building lookup did not return a detailed single Catastro property, so a full proposal could not be generated."],
         }
+        store_json_cache(cache_key, payload)
+        return payload
 
     proposal = run_full_analysis(district_payload["normalized_district"], normalized_building)
-    return {
+    payload = {
         "proposal_status": "ok",
         "district_data": district_payload["normalized_district"],
         "building_data": normalized_building,
@@ -252,3 +320,5 @@ def get_real_proposal_payload(
         "building_context": building_payload.get("normalization_context", {}),
         "notes": district_payload["notes"] + building_payload.get("notes", []),
     }
+    store_json_cache(cache_key, payload)
+    return payload

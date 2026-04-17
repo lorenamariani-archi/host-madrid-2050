@@ -1839,22 +1839,22 @@ async function runSafe(action) {
   }
 }
 
-async function loadRealExample() {
+function seedRealExampleInputs() {
   elements.realDistrict.value = "Centro";
   elements.realStreetType.value = "CL";
   elements.realStreetName.value = "ALCALA";
   elements.realStreetNumber.value = "45";
   elements.realRefresh.checked = false;
-  await runSafe(loadRealData);
 }
 
 elements.realLoadButton.addEventListener("click", () => runSafe(loadRealSelection));
 elements.realProposalButton.addEventListener("click", () => runSafe(loadRealProposal));
 
 async function initApp() {
-  setStatus("Loading the official example...");
+  setStatus("Loading district options...");
   await loadDistrictOptions();
-  await loadRealExample();
+  seedRealExampleInputs();
+  setStatus("Ready. Click Load Data to fetch the selected district and optional address.");
 }
 
 void initApp();

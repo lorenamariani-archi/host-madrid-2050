@@ -7,11 +7,14 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from .cache_utils import load_json_cache, store_json_cache
+
 INE_BASE_URL = "https://servicios.ine.es/wstempus/js/es"
 MADRID_MUNICIPALITY_CODE = "28079 Madrid"
 HOUSEHOLD_SIZE_TABLE_ID = "59543"
 HOUSEHOLD_TYPE_TABLE_ID = "59544"
-REQUEST_TIMEOUT_SECONDS = 30
+REQUEST_TIMEOUT_SECONDS = 12
+INE_CACHE_TTL_SECONDS = 60 * 60 * 24
 
 
 class IneApiError(RuntimeError):
@@ -41,6 +44,10 @@ def _extract_madrid_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 @lru_cache(maxsize=1)
 def get_madrid_city_household_statistics() -> dict[str, Any]:
+    cached = load_json_cache("ine_madrid_households_v1", ttl_seconds=INE_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
     size_rows = _extract_madrid_rows(
         _fetch_json(f"{INE_BASE_URL}/DATOS_TABLA/{HOUSEHOLD_SIZE_TABLE_ID}")
     )
@@ -62,7 +69,7 @@ def get_madrid_city_household_statistics() -> dict[str, Any]:
         value = int(row["Data"][0]["Valor"])
         household_type[name] = {"count": value, "share": _share(value, total_households)}
 
-    return {
+    payload = {
         "municipality": "Madrid",
         "household_size_distribution": household_size,
         "household_type_distribution": household_type,
@@ -73,6 +80,8 @@ def get_madrid_city_household_statistics() -> dict[str, Any]:
             "base_url": INE_BASE_URL,
         },
     }
+    store_json_cache("ine_madrid_households_v1", payload)
+    return payload
 
 
 def clear_ine_cache() -> None:

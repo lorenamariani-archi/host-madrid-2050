@@ -6,14 +6,17 @@ import csv
 import io
 import json
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from .cache_utils import load_json_cache, store_json_cache
 
-REQUEST_TIMEOUT_SECONDS = 60
+REQUEST_TIMEOUT_SECONDS = 20
+PUBLIC_DATA_CACHE_TTL_SECONDS = 60 * 60 * 24
 MADRID_CKAN_PACKAGE_SHOW_URL = "https://datos.madrid.es/api/3/action/package_show?id={dataset_id}"
 PADRON_DATASET_IDS = [
     "200076-0-padron",
@@ -166,6 +169,10 @@ def _padron_source_candidates() -> list[dict[str, Any]]:
 
 @lru_cache(maxsize=1)
 def load_madrid_demographics() -> dict[str, dict[str, Any]]:
+    cached = load_json_cache("madrid_demographics_v1", ttl_seconds=PUBLIC_DATA_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
     last_errors: list[str] = []
     rows: list[dict[str, Any]] | None = None
     source: dict[str, Any] | None = None
@@ -263,18 +270,29 @@ def load_madrid_demographics() -> dict[str, dict[str, Any]]:
             "female": district.pop("female"),
         }
 
+    store_json_cache("madrid_demographics_v1", district_index)
     return district_index
 
 
 @lru_cache(maxsize=1)
 def load_panel_indicators() -> list[dict[str, str]]:
+    cached = load_json_cache("madrid_panel_indicators_v1", ttl_seconds=PUBLIC_DATA_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
     metadata = _dataset_metadata(PANEL_DATASET_ID)
     resource_url = _extract_csv_resource_url(metadata["resources"])
-    return _fetch_csv_rows(resource_url)
+    rows = _fetch_csv_rows(resource_url)
+    store_json_cache("madrid_panel_indicators_v1", rows)
+    return rows
 
 
 @lru_cache(maxsize=1)
 def load_public_schools_by_district() -> dict[str, int]:
+    cached = load_json_cache("madrid_public_schools_v1", ttl_seconds=PUBLIC_DATA_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
     metadata = _dataset_metadata(PUBLIC_SCHOOLS_DATASET_ID)
     resource_url = _extract_csv_resource_url(metadata["resources"])
     rows = _fetch_csv_rows(resource_url)
@@ -287,6 +305,7 @@ def load_public_schools_by_district() -> dict[str, int]:
         district_key = normalize_district_name(district_name)
         counts[district_key] = counts.get(district_key, 0) + 1
 
+    store_json_cache("madrid_public_schools_v1", counts)
     return counts
 
 
@@ -339,8 +358,15 @@ def get_madrid_district_official_data(
     if refresh:
         clear_madrid_cache()
 
-    demographics = get_madrid_district_demographics(district_name)
-    panel = get_district_panel_snapshot(district_name)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        demographics_future = executor.submit(get_madrid_district_demographics, district_name)
+        panel_future = executor.submit(get_district_panel_snapshot, district_name)
+        schools_future = executor.submit(load_public_schools_by_district)
+
+        demographics = demographics_future.result()
+        panel = panel_future.result()
+        schools_by_district = schools_future.result()
+
     if demographics is None or panel is None:
         return None
 
@@ -361,7 +387,7 @@ def get_madrid_district_official_data(
         "health_centers": panel.get("Centros municipales de salud comunitaria (CMSC)", {}).get("numeric_value", 0.0),
         "addiction_centers": panel.get("Centros de atención a las adicciones (CAD y CCAD)", {}).get("numeric_value", 0.0),
         "homeless_centers": panel.get("Centros para personas sin hogar", {}).get("numeric_value", 0.0),
-        "schools": float(load_public_schools_by_district().get(normalize_district_name(district_name), 0)),
+        "schools": float(schools_by_district.get(normalize_district_name(district_name), 0)),
     }
 
     households = {
