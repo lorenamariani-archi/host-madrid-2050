@@ -6,7 +6,7 @@ import csv
 import io
 import json
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
@@ -15,8 +15,9 @@ from urllib.request import Request, urlopen
 
 from .cache_utils import load_json_cache, store_json_cache
 
-REQUEST_TIMEOUT_SECONDS = 20
+REQUEST_TIMEOUT_SECONDS = 8
 PUBLIC_DATA_CACHE_TTL_SECONDS = 60 * 60 * 24
+DISTRICT_FETCH_TIMEOUT_SECONDS = 5
 MADRID_CKAN_PACKAGE_SHOW_URL = "https://datos.madrid.es/api/3/action/package_show?id={dataset_id}"
 PADRON_DATASET_IDS = [
     "200076-0-padron",
@@ -363,9 +364,12 @@ def get_madrid_district_official_data(
         panel_future = executor.submit(get_district_panel_snapshot, district_name)
         schools_future = executor.submit(load_public_schools_by_district)
 
-        demographics = demographics_future.result()
-        panel = panel_future.result()
-        schools_by_district = schools_future.result()
+        try:
+            demographics = demographics_future.result(timeout=DISTRICT_FETCH_TIMEOUT_SECONDS)
+            panel = panel_future.result(timeout=DISTRICT_FETCH_TIMEOUT_SECONDS)
+            schools_by_district = schools_future.result(timeout=DISTRICT_FETCH_TIMEOUT_SECONDS)
+        except TimeoutError as exc:
+            raise MadridOpenDataError("Madrid official data timed out before the district snapshot could be assembled") from exc
 
     if demographics is None or panel is None:
         return None

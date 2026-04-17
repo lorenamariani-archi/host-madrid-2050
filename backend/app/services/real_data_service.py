@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from copy import deepcopy
 from typing import Any
 
@@ -23,6 +23,7 @@ class RealDataServiceError(RuntimeError):
 DISTRICT_CACHE_TTL_SECONDS = 60 * 60 * 6
 BUILDING_CACHE_TTL_SECONDS = 60 * 60 * 24
 PROPOSAL_CACHE_TTL_SECONDS = 60 * 60 * 6
+DISTRICT_ASSEMBLY_TIMEOUT_SECONDS = 6
 
 
 def _refresh_if_needed(refresh: bool) -> None:
@@ -144,14 +145,26 @@ def get_real_district_payload(district_name: str, *, refresh: bool = False) -> d
         ine_future = executor.submit(get_madrid_city_household_statistics)
 
         try:
-            official_data = official_future.result()
+            official_data = official_future.result(timeout=DISTRICT_ASSEMBLY_TIMEOUT_SECONDS)
         except MadridOpenDataError as exc:
             madrid_error = str(exc)
+        except TimeoutError as exc:
+            madrid_error = "Madrid official district request exceeded the response time budget"
 
         try:
-            ine_context = ine_future.result()
+            ine_context = ine_future.result(timeout=DISTRICT_ASSEMBLY_TIMEOUT_SECONDS)
         except IneApiError as exc:
             ine_error = str(exc)
+            ine_context = {
+                "households": {},
+                "source": {
+                    "status": "unavailable",
+                    "error": ine_error,
+                    "mode": "missing_official_context",
+                },
+            }
+        except TimeoutError:
+            ine_error = "INE household context request exceeded the response time budget"
             ine_context = {
                 "households": {},
                 "source": {
