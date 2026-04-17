@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from copy import deepcopy
+import os
 from typing import Any
 
 from ..data.catalog import DISTRICT_DATA
@@ -30,6 +31,13 @@ def _refresh_if_needed(refresh: bool) -> None:
     if refresh:
         clear_madrid_cache()
         clear_ine_cache()
+
+
+def _use_lightweight_public_mode() -> bool:
+    configured = os.getenv("HOST_LIGHTWEIGHT_MODE")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("RENDER", "").strip().lower() == "true"
 
 
 def _district_cache_key(district_name: str) -> str:
@@ -134,6 +142,25 @@ def get_real_district_payload(district_name: str, *, refresh: bool = False) -> d
         cached = load_json_cache(cache_key, ttl_seconds=DISTRICT_CACHE_TTL_SECONDS)
         if cached is not None:
             return cached
+
+    if _use_lightweight_public_mode():
+        payload = _fallback_district_payload(
+            district_name,
+            reason=(
+                "HOST is running in lightweight public mode on Render to stay within the service memory limits. "
+                "District analysis uses a compact local snapshot while address lookup still uses official Catastro data."
+            ),
+            ine_context={
+                "households": {},
+                "source": {
+                    "status": "disabled",
+                    "mode": "lightweight_public_mode",
+                    "note": "INE context is skipped in lightweight public mode to reduce memory and cold-start cost.",
+                },
+            },
+        )
+        store_json_cache(cache_key, payload)
+        return payload
 
     official_data = None
     ine_context: dict[str, Any] = {}
